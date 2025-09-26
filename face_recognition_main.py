@@ -477,7 +477,7 @@ def main():
     parser.add_argument('--arcface-model', type=str,
                        help='Path to ArcFace ONNX model file')
     
-    parser.set_defaults(show_legend=True, enable_liveness=True, enable_blur=True)
+    parser.set_defaults(show_legend=True, enable_liveness=False, enable_blur=True)
 
     args = parser.parse_args()
 
@@ -493,6 +493,12 @@ def main():
         'detection_downscale': flag_provided('--detection-downscale'),
         'quality_interval': flag_provided('--quality-interval'),
     }
+
+    input_source_hint = args.input
+    is_camera_input = input_source_hint.isdigit()
+
+    if not overrides['enable_liveness']:
+        args.enable_liveness = is_camera_input
 
     if args.fast:
         if not overrides['detection_downscale'] and args.detection_downscale == 1.0:
