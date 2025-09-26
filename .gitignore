@@ -1,0 +1,39 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Build & packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Testing / coverage
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.code-workspace
+
+# Logs & runtime dumps
+*.log
+*.tmp
+*.bak
+
+# Generated data
+face_database_backup.json
+
+# OS cruft
+.DS_Store
+Thumbs.db

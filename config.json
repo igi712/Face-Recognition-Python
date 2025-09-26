@@ -1,0 +1,48 @@
+{
+  "min_face_size": 90,
+  "face_threshold": 0.5,
+  "recognition_threshold": 0.8,
+  "liveness_threshold": 0.93,
+  "max_blur": -25.0,
+  "max_angle": 10.0,
+  "max_database_items": 2000,
+  "show_landmarks": true,
+  "show_legend": true,
+  "enable_liveness": true,
+  "enable_blur_filter": true,
+  "auto_add_faces": false,
+  "database_path": "face_database_mobilefacenet.json",
+  "images_directory": "images",
+  "models": {
+    "face_detector": {
+      "model_path": "models/opencv_face_detector_uint8.pb",
+      "config_path": "models/opencv_face_detector.pbtxt",
+      "input_width": 320,
+      "input_height": 240,
+      "confidence_threshold": 0.5,
+      "nms_threshold": 0.4
+    },
+    "feature_extractor": {
+      "model_path": "models/mobilefacenet.onnx",
+      "input_size": [112, 112],
+      "feature_dim": 128
+    },
+    "liveness_detector": {
+      "model_path": "models/liveness_model.onnx",
+      "threshold": 0.93
+    }
+  },
+  "video": {
+    "display_width": 640,
+    "display_height": 480,
+    "fps_buffer_size": 16
+  },
+  "colors": {
+    "recognized": [255, 255, 255],
+    "stranger": [80, 255, 255],
+    "too_tiny": [255, 237, 178],
+    "fake": [127, 127, 255],
+    "landmarks": [0, 255, 255],
+    "legend": [180, 180, 0]
+  }
+}
