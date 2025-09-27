@@ -14,20 +14,18 @@ import base64
 import numpy as np
 import cv2
 from typing import List, Dict, Optional, Tuple, Any
-
-from .recognition import WarpAndExtract
+from .face_features import FaceFeatureExtractor
+try:
+    from .face_features_arcface import ArcFaceExtractor
+    ARCFACE_AVAILABLE = True
+except ImportError:
+    ARCFACE_AVAILABLE = False
 
 class FaceDatabase:
     """Face database for storing and matching face features"""
     
-    def __init__(
-        self,
-        database_path: str = "face_database_mobilefacenet.json",
-        max_items: int = 2000,
-        use_arcface: bool = True,
-        arcface_model_path: Optional[str] = None,
-        pipeline: Optional[WarpAndExtract] = None,
-    ):
+    def __init__(self, database_path: str = "face_database_mobilefacenet.json", max_items: int = 2000,
+                 use_arcface: bool = True, arcface_model_path: Optional[str] = None):
         """
         Initialize face database
         Args:
@@ -38,26 +36,28 @@ class FaceDatabase:
         """
         self.database_path = database_path
         self.max_items = max_items
-
-        self.pipeline = pipeline or WarpAndExtract(
-            use_arcface=use_arcface,
-            arcface_model_path=arcface_model_path,
-        )
-        self.use_arcface = self.pipeline.is_arcface
+        self.use_arcface = use_arcface and ARCFACE_AVAILABLE
+        
+        # Initialize feature extractors
+        self.legacy_extractor = FaceFeatureExtractor()
         if self.use_arcface:
+            self.arcface_extractor = ArcFaceExtractor(arcface_model_path)
             print("✅ Using ArcFace feature extraction")
-            self.similarity_threshold = 0.3
+            self.similarity_threshold = 0.3  # Higher threshold for ArcFace
         else:
-            self.similarity_threshold = 0.8
+            self.arcface_extractor = None
+            self.similarity_threshold = 0.8  # Lower threshold for legacy features
+            if use_arcface and not ARCFACE_AVAILABLE:
+                print("⚠️  ArcFace requested but not available, using legacy features")
 
         self.faces = {}  # type: Dict[str, List[List[float]]]  # {name: [feature_vectors]}
         self.face_names: List[str] = []  # List of names
 
         self.load_database()
     
-    def set_feature_extractor(self, extractor) -> None:
-        """Override the legacy extractor (used primarily for tests)."""
-        self.pipeline.legacy_extractor = extractor
+    def set_feature_extractor(self, extractor: FaceFeatureExtractor):
+        """Set the feature extractor to use"""
+        self.feature_extractor = extractor
     
     def add_face(self, name: str, face_image: np.ndarray, landmarks: List = None) -> bool:
         """
@@ -77,7 +77,16 @@ class FaceDatabase:
         
         try:
             # Extract features using appropriate extractor
-            feature = self.pipeline.extract_feature(face_image, landmarks)
+            if self.use_arcface and self.arcface_extractor:
+                feature = self.arcface_extractor.extract_feature(face_image, landmarks)
+            else:
+                # Align face if landmarks available
+                if landmarks and len(landmarks) >= 2:
+                    face_aligned = self.legacy_extractor.align_face(face_image, landmarks)
+                else:
+                    face_aligned = cv2.resize(face_image, (112, 112))  # Standard size
+                
+                feature = self.legacy_extractor.extract_feature(face_aligned)
             
             # Add to database
             if name not in self.faces:
@@ -134,7 +143,16 @@ class FaceDatabase:
         
         try:
             # Extract features using appropriate extractor
-            query_feature = self.pipeline.extract_feature(face_image, landmarks)
+            if self.use_arcface and self.arcface_extractor:
+                query_feature = self.arcface_extractor.extract_feature(face_image, landmarks)
+            else:
+                # Align face if landmarks available
+                if landmarks and len(landmarks) >= 2:
+                    face_aligned = self.legacy_extractor.align_face(face_image, landmarks)
+                else:
+                    face_aligned = cv2.resize(face_image, (112, 112))
+                
+                query_feature = self.legacy_extractor.extract_feature(face_aligned)
             
             best_match_idx = -1
             best_similarity = 0.0
@@ -147,7 +165,10 @@ class FaceDatabase:
                     stored_feature_np = np.array(stored_feature, dtype=np.float32)
                     
                     # Calculate similarity
-                    similarity = self.pipeline.similarity(query_feature, stored_feature_np)
+                    if self.use_arcface:
+                        similarity = ArcFaceExtractor.cosine_similarity(query_feature, stored_feature_np)
+                    else:
+                        similarity = self._calculate_similarity(query_feature, stored_feature_np)
                     
                     if similarity > best_similarity:
                         best_similarity = similarity
@@ -164,8 +185,17 @@ class FaceDatabase:
             return -1, 0.0
     
     def _calculate_similarity(self, feature1: np.ndarray, feature2: np.ndarray) -> float:
-        """Deprecated: retained for backward compatibility."""
-        return self.pipeline.similarity(feature1, feature2)
+        """Calculate cosine similarity between two feature vectors"""
+        # Normalize features
+        norm1 = np.linalg.norm(feature1)
+        norm2 = np.linalg.norm(feature2)
+        
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+        
+        # Cosine similarity
+        similarity = np.dot(feature1, feature2) / (norm1 * norm2)
+        return float(np.clip(similarity, 0.0, 1.0))
 
     @staticmethod
     def _cosine_similarity_vec(vec_a: np.ndarray, vec_b: np.ndarray) -> float:

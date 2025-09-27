@@ -10,7 +10,6 @@ from .face_detector import FaceDetector, FaceObject
 from .face_features import FaceFeatureExtractor
 from .face_database import FaceDatabase
 from .face_quality import FaceQualityAssessment
-from .recognition import WarpAndExtract
 from .config_manager import ConfigManager
 
 __version__ = "1.0.0"
@@ -22,6 +21,5 @@ __all__ = [
     'FaceFeatureExtractor',
     'FaceDatabase',
     'FaceQualityAssessment',
-    'WarpAndExtract',
     'ConfigManager'
 ]

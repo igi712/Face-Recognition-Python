@@ -21,8 +21,8 @@ SRC_ROOT = PROJECT_ROOT / "src"
 
 from src.face_database import FaceDatabase
 from src.face_detector import FaceDetector, FaceObject
+from src.face_features import FaceFeatureExtractor
 from src.face_quality import FaceQualityAssessment
-from src.recognition import WarpAndExtract
 
 
 class FaceRecognitionSystem:
@@ -91,18 +91,12 @@ class FaceRecognitionSystem:
         self.config["quality_cache_bucket"] = max(4, int(self.config.get("quality_cache_bucket", 16)))
 
         self.face_detector = FaceDetector()
-        self.arcface_pipeline = WarpAndExtract(
-            use_arcface=self.config.get("use_arcface", True),
-            arcface_model_path=self.config.get("arcface_model_path"),
-        )
-        self.config["use_arcface"] = self.arcface_pipeline.is_arcface
-
+        self.feature_extractor = FaceFeatureExtractor()
         self.face_database = FaceDatabase(
             database_path=self.config["database_path"],
             max_items=self.config["max_database_items"],
             use_arcface=self.config["use_arcface"],
             arcface_model_path=self.config["arcface_model_path"],
-            pipeline=self.arcface_pipeline,
         )
         self.quality_assessor = FaceQualityAssessment(fast_mode=self.config.get("fast_mode", False))
 
