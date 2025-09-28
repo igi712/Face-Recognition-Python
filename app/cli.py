@@ -59,6 +59,8 @@ class FaceRecognitionSystem:
             "fast_mode": False,
             "quality_cache_bucket": 16,
             "opencv_threads": None,
+            "jetson_compat": False,
+            "max_faces_per_frame": None,
             "recognition_event_cooldown": 1.5,
             "recognition_event_enabled": True,
             "recognition_event_file": str(PROJECT_ROOT / "temp" / "recognized_faces.jsonl"),
@@ -91,13 +93,29 @@ class FaceRecognitionSystem:
             if not self._overrides.get("detection_frame_size"):
                 self.config["detection_frame_size"] = None
 
+        if self.config.get("jetson_compat"):
+            if not self._overrides.get("detection_frame_size"):
+                self.config["detection_frame_size"] = (320, 240)
+            if not self._overrides.get("detection_downscale"):
+                self.config["detection_downscale"] = 1.0
+            if not self._overrides.get("enable_liveness"):
+                self.config["enable_liveness"] = False
+            if not self._overrides.get("show_landmarks"):
+                self.config["show_landmarks"] = True
+            if not self._overrides.get("enable_blur_filter"):
+                self.config["enable_blur_filter"] = True
+            if isinstance(self.config.get("max_faces_per_frame"), (int, float)) and self.config.get("max_faces_per_frame") is not None:
+                pass
+            else:
+                self.config["max_faces_per_frame"] = 1
+
         self.config["quality_interval"] = max(1, int(self.config.get("quality_interval", 1)))
         downscale = float(self.config.get("detection_downscale", 1.0))
         self.config["detection_downscale"] = max(min(downscale if downscale > 0 else 1.0, 1.0), 0.1)
         self.config["quality_cache_bucket"] = max(4, int(self.config.get("quality_cache_bucket", 16)))
 
         self.face_detector = FaceDetector()
-        self.feature_extractor = FaceFeatureExtractor(verbose=False)
+        self.feature_extractor = FaceFeatureExtractor()
         self.face_database = FaceDatabase(
             database_path=self.config["database_path"],
             max_items=self.config["max_database_items"],
@@ -172,30 +190,27 @@ class FaceRecognitionSystem:
         self.frame_count += 1
 
         detection_resize: Optional[Tuple[float, float]] | None = None
-        downscale = self.config.get("detection_downscale", 1.0)
+        downscale = float(self.config.get("detection_downscale", 1.0) or 1.0)
 
-        if self.face_detector.use_retina:
-            if downscale < 1.0:
-                detection_resize = downscale
-        else:
-            target_size = self.config.get("detection_frame_size")
-            if (
-                isinstance(target_size, (tuple, list))
-                and len(target_size) >= 2
-                and target_size[0]
-                and target_size[1]
-            ):
-                frame_h, frame_w = frame.shape[:2]
-                target_w = max(1, int(target_size[0]))
-                target_h = max(1, int(target_size[1]))
-                scale_x = target_w / float(frame_w) if frame_w > 0 else 1.0
-                scale_y = target_h / float(frame_h) if frame_h > 0 else 1.0
-                scale_x = min(scale_x, 1.0)
-                scale_y = min(scale_y, 1.0)
-                if scale_x < 1.0 or scale_y < 1.0:
-                    detection_resize = (scale_x, scale_y)
-            if detection_resize is None and downscale < 1.0:
-                detection_resize = downscale
+        target_size = self.config.get("detection_frame_size")
+        if (
+            isinstance(target_size, (tuple, list))
+            and len(target_size) >= 2
+            and target_size[0]
+            and target_size[1]
+        ):
+            frame_h, frame_w = frame.shape[:2]
+            target_w = max(1, int(target_size[0]))
+            target_h = max(1, int(target_size[1]))
+            scale_x = target_w / float(frame_w) if frame_w > 0 else 1.0
+            scale_y = target_h / float(frame_h) if frame_h > 0 else 1.0
+            scale_x = min(scale_x, 1.0)
+            scale_y = min(scale_y, 1.0)
+            if scale_x < 1.0 or scale_y < 1.0:
+                detection_resize = (scale_x, scale_y)
+
+        if detection_resize is None and downscale < 1.0:
+            detection_resize = downscale
 
         faces = self.face_detector.detect_faces(frame, resize_factor=detection_resize)
 
@@ -204,6 +219,11 @@ class FaceRecognitionSystem:
             self.config["min_face_size"],
             self.config.get("face_threshold", 0.0),
         )
+
+        max_faces = self.config.get("max_faces_per_frame")
+        if isinstance(max_faces, int) and max_faces > 0 and len(faces) > max_faces:
+            faces.sort(key=lambda f: getattr(f, "face_prob", 0.0), reverse=True)
+            faces = faces[:max_faces]
 
         for face in faces:
             self._process_single_face(frame, face)
@@ -529,6 +549,11 @@ def main() -> None:
     parser.add_argument("--detection-downscale", type=float, default=1.0, help="Resize factor (<1.0) applied before detection to boost FPS")
     parser.add_argument("--quality-interval", type=int, default=1, help="Run blur/liveness checks every N frames (>=1)")
     parser.add_argument("--fast", action="store_true", help="Enable preset speed optimizations (changes several settings)")
+    parser.add_argument(
+        "--jetson-compat",
+        action="store_true",
+        help="Mirror the Jetson Nano pipeline (320x240 detection, ArcFace-only, single-face focus)",
+    )
     parser.add_argument("--opencv-threads", type=int, help="Override OpenCV thread count (0 lets OpenCV decide)")
     parser.add_argument("--use-arcface", action="store_true", default=True, help="Use ArcFace features (default: True, more accurate)")
     parser.add_argument("--use-legacy", action="store_true", help="Force use of legacy features (less accurate)")
@@ -588,12 +613,26 @@ def main() -> None:
         if not overrides["show_landmarks"] and args.show_landmarks is None:
             args.show_landmarks = False
 
+    if args.jetson_compat:
+        if not overrides["detection_downscale"]:
+            args.detection_downscale = 1.0
+        if not overrides["quality_interval"]:
+            args.quality_interval = max(args.quality_interval, 2)
+        if not overrides["enable_liveness"]:
+            args.enable_liveness = False
+        if args.show_landmarks is None and not overrides["show_landmarks"]:
+            args.show_landmarks = True
+
     use_arcface = args.use_arcface and not args.use_legacy
     if args.use_legacy:
         use_arcface = False
         print("🔄 Using legacy features (forced by --use-legacy)")
     elif use_arcface:
         print("🚀 Using ArcFace features (more accurate)")
+
+    if args.jetson_compat and not use_arcface:
+        print("⚠️  Jetson compatibility requires ArcFace; overriding legacy setting.")
+        use_arcface = True
 
     if args.threshold is None:
         threshold = 0.4 if use_arcface else 0.8
@@ -613,6 +652,7 @@ def main() -> None:
         "detection_downscale": args.detection_downscale,
         "quality_interval": args.quality_interval,
         "fast_mode": args.fast,
+    "jetson_compat": args.jetson_compat,
         "opencv_threads": args.opencv_threads,
         "recognition_event_append": args.event_file_mode != "overwrite",
         "recognition_event_max_lines": args.event_file_max_lines,
