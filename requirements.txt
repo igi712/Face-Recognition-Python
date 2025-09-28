@@ -20,3 +20,7 @@ onnxruntime>=1.12.0,<1.16.0
 # onnxruntime>=1.10.0
 # torch>=1.10.0
 # torchvision>=0.11.0
+
+# NCNN Python bindings (for MobileFaceNet acceleration / Z-score features)
+# If installation fails on your platform you can comment it out; code will fallback.
+ncnn>=1.0.0

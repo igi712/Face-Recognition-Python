@@ -25,7 +25,7 @@ class FaceDatabase:
     """Face database for storing and matching face features"""
     
     def __init__(self, database_path: str = "face_database_mobilefacenet.json", max_items: int = 2000,
-                 use_arcface: bool = True, arcface_model_path: Optional[str] = None):
+                 use_arcface: bool = True, arcface_model_path: Optional[str] = None, use_zscore_norm: bool = False):
         """
         Initialize face database
         Args:
@@ -33,17 +33,20 @@ class FaceDatabase:
             max_items: Maximum number of faces in database
             use_arcface: Whether to use ArcFace features (more accurate)
             arcface_model_path: Path to ArcFace ONNX model file
+            use_zscore_norm: Whether to use Z-score normalization (like Jetson Nano)
         """
         self.database_path = database_path
         self.max_items = max_items
         self.use_arcface = use_arcface and ARCFACE_AVAILABLE
+        self.use_zscore_norm = use_zscore_norm
         
         # Initialize feature extractors
         self.legacy_extractor = FaceFeatureExtractor()
         if self.use_arcface:
-            self.arcface_extractor = ArcFaceExtractor(arcface_model_path)
-            print("✅ Using ArcFace feature extraction")
-            self.similarity_threshold = 0.3  # Higher threshold for ArcFace
+            self.arcface_extractor = ArcFaceExtractor(arcface_model_path, use_zscore_norm=use_zscore_norm)
+            print("✅ Using ArcFace feature extraction" + (" (Z-score norm)" if use_zscore_norm else " (L2 norm)"))
+            # Adjust threshold based on normalization method
+            self.similarity_threshold = 0.3 if use_zscore_norm else 0.5  # Z-score has different range
         else:
             self.arcface_extractor = None
             self.similarity_threshold = 0.8  # Lower threshold for legacy features

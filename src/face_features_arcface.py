@@ -42,13 +42,17 @@ class ArcFaceExtractor:
     
     def __init__(self, model_path: Optional[str] = None, 
                  input_size: Tuple[int, int] = (112, 112),
-                 use_ncnn: bool = True):
+                 use_ncnn: bool = True,
+                 use_fallback: bool = True,
+                 use_zscore_norm: bool = False):
         """
         Initialize ArcFace feature extractor
         Args:
             model_path: Path to ONNX model file or "ncnn" for NCNN models
             input_size: Input image size (width, height)
             use_ncnn: Whether to try NCNN models first (recommended)
+            use_fallback: Whether to use fallback features if model fails to load
+            use_zscore_norm: Whether to use Z-score normalization (like Jetson Nano) instead of L2
         """
         self.model_path = model_path
         self.input_size = input_size
@@ -58,6 +62,8 @@ class ArcFaceExtractor:
         self.output_name = None
         self.ncnn_model = None
         self.use_ncnn = use_ncnn
+        self.use_fallback = use_fallback
+        self.use_zscore_norm = use_zscore_norm
         
         # Model normalization parameters (ImageNet standard)
         self.mean = np.array([127.5, 127.5, 127.5], dtype=np.float32)
@@ -90,13 +96,22 @@ class ArcFaceExtractor:
         try:
             self.ncnn_model = NCNNModelFactory.create_mobilefacenet()
             if self.ncnn_model and not self.ncnn_model.use_fallback:
-                print("✅ NCNN MobileFaceNet loaded successfully")
+                try:
+                    print("✅ NCNN MobileFaceNet loaded successfully")
+                except Exception:
+                    print("NCNN MobileFaceNet loaded successfully")
                 return True
             else:
-                print("⚠️  NCNN model loading failed")
+                try:
+                    print("⚠️  NCNN model loading failed")
+                except Exception:
+                    print("NCNN model loading failed")
                 return False
         except Exception as e:
-            print(f"⚠️  Error loading NCNN model: {e}")
+            try:
+                print(f"⚠️  Error loading NCNN model: {e}")
+            except Exception:
+                print(f"Error loading NCNN model: {e}")
             return False
     
     def _load_onnx_model(self, model_path: str):
@@ -119,7 +134,10 @@ class ArcFaceExtractor:
             
             # Get input shape to verify
             input_shape = self.session.get_inputs()[0].shape
-            print(f"✅ ArcFace ONNX model loaded: {model_path}")
+            try:
+                print(f"✅ ArcFace ONNX model loaded: {model_path}")
+            except Exception:
+                print(f"ArcFace ONNX model loaded: {model_path}")
             print(f"   Input shape: {input_shape}")
             print(f"   Input name: {self.input_name}")
             print(f"   Output name: {self.output_name}")
@@ -144,10 +162,13 @@ class ArcFaceExtractor:
             try:
                 return self.ncnn_model.extract_feature(face_image, landmarks)
             except Exception as e:
-                print(f"NCNN extraction failed: {e}, trying ONNX...")
+                try:
+                    print(f"NCNN extraction failed: {e}, trying ONNX...")
+                except Exception:
+                    print(f"NCNN extraction failed: {e}, trying ONNX...")
         
         # Try ONNX model
-        if self.session and not self.use_fallback:
+        if self.session:
             try:
                 # Preprocess face image
                 preprocessed = self._preprocess_face(face_image, landmarks)
@@ -157,15 +178,25 @@ class ArcFaceExtractor:
                 outputs = self.session.run([self.output_name], inputs)
                 feature = outputs[0].flatten()
                 
-                # L2 normalization (critical for face recognition)
-                feature = self._l2_normalize(feature)
+                # Apply normalization based on configuration
+                if self.use_zscore_norm:
+                    feature = self._zscore_normalize(feature)
+                else:
+                    feature = self._l2_normalize(feature)
                 
                 return feature.astype(np.float32)
             except Exception as e:
-                print(f"ONNX extraction failed: {e}, using fallback...")
+                try:
+                    print(f"ONNX extraction failed: {e}, trying fallback...")
+                except Exception:
+                    print(f"ONNX extraction failed: {e}, trying fallback...")
         
-        # Fallback feature extraction
-        return self._extract_fallback_features(face_image)
+        # Fallback feature extraction or error
+        if self.use_fallback:
+            return self._extract_fallback_features(face_image)
+        else:
+            raise RuntimeError("No ArcFace model available and fallback is disabled. "
+                             "Please install NCNN models or provide a valid ONNX model path.")
     
     def _preprocess_face(self, face_image: np.ndarray, landmarks: Optional[list] = None) -> np.ndarray:
         """
@@ -244,6 +275,20 @@ class ArcFaceExtractor:
         if norm == 0:
             return feature
         return feature / norm
+    
+    def _zscore_normalize(self, feature: np.ndarray) -> np.ndarray:
+        """
+        Z-score normalization (mean=0, std=1) like Jetson Nano implementation
+        Args:
+            feature: Input feature vector
+        Returns:
+            Z-score normalized feature vector
+        """
+        mean_val = np.mean(feature)
+        std_val = np.std(feature)
+        if std_val == 0:
+            return feature - mean_val  # Subtract mean only if std is zero
+        return (feature - mean_val) / std_val
     
     def _extract_fallback_features(self, face_image: np.ndarray) -> np.ndarray:
         """
@@ -384,9 +429,9 @@ class MobileFaceNetExtractor(ArcFaceExtractor):
     Optimized for mobile/edge deployment
     """
     
-    def __init__(self, model_path: Optional[str] = None):
+    def __init__(self, model_path: Optional[str] = None, use_zscore_norm: bool = False):
         """Initialize MobileFaceNet extractor"""
-        super().__init__(model_path, input_size=(112, 112))
+        super().__init__(model_path, input_size=(112, 112), use_zscore_norm=use_zscore_norm)
         self.feature_dim = 128  # MobileFaceNet standard output
         
         print("MobileFaceNet extractor initialized")

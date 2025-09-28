@@ -15,10 +15,16 @@ from typing import Optional, Tuple, List
 try:
     import ncnn
     NCNN_AVAILABLE = True
-    print("✅ NCNN Python bindings available")
+    try:
+        print("✅ NCNN Python bindings available")
+    except Exception:
+        print("NCNN Python bindings available")
 except ImportError:
     NCNN_AVAILABLE = False
-    print("❌ NCNN Python bindings not available")
+    try:
+        print("❌ NCNN Python bindings not available")
+    except Exception:
+        print("NCNN Python bindings not available")
     print("   Install with: pip install ncnn")
 
 class NCNNMobileFaceNet:

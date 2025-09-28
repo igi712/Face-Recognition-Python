@@ -37,12 +37,12 @@ class FaceRecognitionSystem:
     ) -> None:
         """Initialize the face recognition system."""
         self.config: Dict[str, object] = {
-            "min_face_size": 90,
+            "min_face_size": 120,
             "face_threshold": 0.5,
             "recognition_threshold": 0.5,
             "liveness_threshold": 0.93,
-            "max_blur": -25.0,
-            "max_angle": 10.0,
+            "max_blur": -20.0,
+            "max_angle": 15.0,
             "max_database_items": 2000,
             "show_landmarks": True,
             "show_legend": True,
@@ -53,7 +53,7 @@ class FaceRecognitionSystem:
             "images_directory": "images",
             "use_arcface": use_arcface,
             "arcface_model_path": arcface_model_path,
-            "detection_downscale": 1.0,
+            "detection_downscale": 0.8,
             "detection_frame_size": (320, 240),
             "quality_interval": 1,
             "fast_mode": False,
@@ -103,6 +103,7 @@ class FaceRecognitionSystem:
             max_items=self.config["max_database_items"],
             use_arcface=self.config["use_arcface"],
             arcface_model_path=self.config["arcface_model_path"],
+            use_zscore_norm=self.config["use_zscore_norm"],
         )
         self.quality_assessor = FaceQualityAssessment(fast_mode=self.config.get("fast_mode", False))
 
@@ -533,6 +534,7 @@ def main() -> None:
     parser.add_argument("--use-arcface", action="store_true", default=True, help="Use ArcFace features (default: True, more accurate)")
     parser.add_argument("--use-legacy", action="store_true", help="Force use of legacy features (less accurate)")
     parser.add_argument("--arcface-model", type=str, help="Path to ArcFace ONNX model file")
+    parser.add_argument("--use-zscore-norm", action="store_true", help="Use Z-score normalization (like Jetson Nano, may improve confidence scores)")
     parser.add_argument("--event-file", type=str, help="Write recognized-face JSON events to this file (newline-delimited)")
     parser.add_argument(
         "--event-file-mode",
@@ -609,6 +611,7 @@ def main() -> None:
         "auto_add_faces": args.auto_add,
         "use_arcface": use_arcface,
         "arcface_model_path": args.arcface_model,
+        "use_zscore_norm": args.use_zscore_norm,
         "enable_blur_filter": args.enable_blur,
         "detection_downscale": args.detection_downscale,
         "quality_interval": args.quality_interval,
@@ -660,8 +663,44 @@ def main() -> None:
                 if is_camera:
                     print("Error reading from camera")
                     break
-                print("End of video file")
-                break
+                else:
+                    print("End of video file reached")
+                    print("\nVideo processing completed!")
+                    print("Options:")
+                    print("  r - Process another video")
+                    print("  q - Quit")
+                    print("  s - Save database and quit")
+                    
+                    while True:
+                        try:
+                            choice = input("Choose an option (r/q/s): ").strip().lower()
+                            if choice == 'r':
+                                # Get new video path
+                                new_video = input("Enter video file path: ").strip()
+                                if new_video and os.path.exists(new_video):
+                                    cap.release()
+                                    cap = cv2.VideoCapture(new_video)
+                                    if cap.isOpened():
+                                        print(f"Processing new video: {new_video}")
+                                        break
+                                    else:
+                                        print(f"Could not open video: {new_video}")
+                                        cap = cv2.VideoCapture(input_source)  # Reopen original
+                                else:
+                                    print("Invalid video path or file not found")
+                            elif choice == 's':
+                                face_recognition.save_database()
+                                print("Database saved")
+                                return
+                            elif choice == 'q':
+                                return
+                            else:
+                                print("Invalid choice. Please enter 'r', 'q', or 's'")
+                        except (EOFError, KeyboardInterrupt):
+                            print("\nExiting...")
+                            return
+                    
+                    continue  # Continue the main loop with new video
 
             result_frame, faces = face_recognition.process_frame(frame)
 
