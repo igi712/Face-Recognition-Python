@@ -24,6 +24,7 @@ Run dengan camera
 ```bash
 python face_recognition_main.py 0 
 ```
+
 Run dengan video
 ```bash
 python face_recognition_main.py kdmjeje2.mp4
@@ -58,7 +59,7 @@ python face_recognition_main.py 0 --use-arcface --use-zscore-norm --auto-add
 Tekan `s` untuk save database, `q` untuk keluar.
 
 ---
-## 📌 Cara Menjalankan (Ringkas)
+## 📌 Cara Menjalankan
 1. Install requirements
 2. (Opsional) Populate database
 3. Jalankan aplikasi webcam
