@@ -39,3 +39,4 @@ face_database_backup.json
 Thumbs.db
 
 temp/
+temp/recognized_faces.jsonl

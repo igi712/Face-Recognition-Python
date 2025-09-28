@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -58,6 +59,11 @@ class FaceRecognitionSystem:
             "fast_mode": False,
             "quality_cache_bucket": 16,
             "opencv_threads": None,
+            "recognition_event_cooldown": 1.5,
+            "recognition_event_enabled": True,
+            "recognition_event_file": str(PROJECT_ROOT / "temp" / "recognized_faces.jsonl"),
+            "recognition_event_append": True,
+            "recognition_event_max_lines": 1000,
         }
 
         if config:
@@ -91,7 +97,7 @@ class FaceRecognitionSystem:
         self.config["quality_cache_bucket"] = max(4, int(self.config.get("quality_cache_bucket", 16)))
 
         self.face_detector = FaceDetector()
-        self.feature_extractor = FaceFeatureExtractor()
+        self.feature_extractor = FaceFeatureExtractor(verbose=False)
         self.face_database = FaceDatabase(
             database_path=self.config["database_path"],
             max_items=self.config["max_database_items"],
@@ -102,6 +108,47 @@ class FaceRecognitionSystem:
 
         self.frame_count = 0
         self._quality_cache: Dict[Tuple[int, int, int, int], Tuple[dict, int]] = {}
+        self._recognition_event_cache: Dict[str, float] = {}
+        self._recognition_event_file_error_logged = False
+        self._recognition_event_trim_error_logged = False
+
+        event_file = self.config.get("recognition_event_file")
+        if event_file:
+            event_path = Path(event_file)
+            if not event_path.is_absolute():
+                event_path = (PROJECT_ROOT / event_path).resolve()
+            event_path.parent.mkdir(parents=True, exist_ok=True)
+            append_mode = bool(self.config.get("recognition_event_append", True))
+            self._recognition_event_file = str(event_path)
+            self._recognition_event_append_mode = append_mode
+            if not append_mode:
+                try:
+                    event_path.write_text("", encoding="utf-8")
+                except Exception as exc:
+                    print(f"⚠️ Failed to initialise recognition event file: {exc}", file=sys.stderr)
+                    self._recognition_event_file = None
+            else:
+                try:
+                    event_path.touch(exist_ok=True)
+                except Exception as exc:
+                    print(f"⚠️ Failed to prepare recognition event file: {exc}", file=sys.stderr)
+                    self._recognition_event_file = None
+        else:
+            self._recognition_event_file = None
+            self._recognition_event_append_mode = True
+
+        self._recognition_event_max_lines = max(
+            0,
+            int(self.config.get("recognition_event_max_lines", 0) or 0),
+        )
+
+        if self._recognition_event_file:
+            mode_str = "append" if self._recognition_event_append_mode else "overwrite"
+            max_lines = self._recognition_event_max_lines or "∞"
+            print(
+                f"📁 Recognition events will be saved to {self._recognition_event_file} "
+                f"(mode={mode_str}, max_lines={max_lines})"
+            )
 
         try:
             cv2.setUseOptimized(True)
@@ -244,6 +291,7 @@ class FaceRecognitionSystem:
 
         if name_index >= 0:
             face.color = 0
+            self._emit_recognition_event(face)
         else:
             face.color = 1
             if self.config["auto_add_faces"] and quality_results["is_good_quality"]:
@@ -271,6 +319,107 @@ class FaceRecognitionSystem:
         unknown_name = f"Unknown_{timestamp}"
         if self.face_database.add_face(unknown_name, face_region, landmarks):
             print(f"Auto-added face: {unknown_name}")
+
+    def _emit_recognition_event(self, face: FaceObject) -> None:
+        if not self.config.get("recognition_event_enabled", True):
+            return
+        if face.name_index < 0 or not face.rect:
+            return
+
+        name = self.face_database.get_name(face.name_index)
+        x, y, w, h = face.rect
+        cache_key = self._make_face_cache_key(face)
+        event_key = f"{name}:{cache_key}"
+
+        cooldown = float(self.config.get("recognition_event_cooldown", 0.0) or 0.0)
+        now = time.time()
+        last_time = self._recognition_event_cache.get(event_key, -float("inf"))
+        if cooldown > 0.0 and (now - last_time) < cooldown:
+            return
+
+        liveness_threshold = float(self.config.get("liveness_threshold", 0.0) or 0.0)
+        liveness_enabled = bool(self.config.get("enable_liveness", True))
+        live_score = float(face.live_prob)
+        liveness_passed = True if not liveness_enabled else live_score >= liveness_threshold
+
+        payload = {
+            "event": "recognized_face",
+            "name": name,
+            "frame_index": self.frame_count,
+            "timestamp": now,
+            "confidence": round(float(face.name_prob), 4),
+            "face_probability": round(float(face.face_prob), 4),
+            "liveness": {
+                "score": round(live_score, 4),
+                "passed": liveness_passed,
+            },
+            "bbox": {
+                "x": int(x),
+                "y": int(y),
+                "width": int(w),
+                "height": int(h),
+            },
+        }
+
+        print(json.dumps(payload), flush=True)
+        self._write_recognition_event(payload)
+        self._recognition_event_cache[event_key] = now
+
+    def emit_test_event(self) -> None:
+        now = time.time()
+        payload = {
+            "event": "recognized_face",
+            "name": "__test__",
+            "frame_index": -1,
+            "timestamp": now,
+            "confidence": 1.0,
+            "face_probability": 1.0,
+            "liveness": {"score": 1.0, "passed": True},
+            "bbox": {"x": 0, "y": 0, "width": 0, "height": 0},
+        }
+        print(json.dumps(payload), flush=True)
+        self._write_recognition_event(payload)
+
+    def _write_recognition_event(self, payload: Dict[str, object]) -> None:
+        if not self._recognition_event_file:
+            return
+
+        mode = "a"
+        try:
+            with open(self._recognition_event_file, mode, encoding="utf-8") as fh:
+                json.dump(payload, fh)
+                fh.write("\n")
+            self._trim_recognition_event_file()
+        except Exception as exc:
+            if self._recognition_event_file_error_logged:
+                return
+            print(
+                f"⚠️ Failed to write recognition event to {self._recognition_event_file}: {exc}",
+                file=sys.stderr,
+            )
+            self._recognition_event_file_error_logged = True
+
+    def _trim_recognition_event_file(self) -> None:
+        if not self._recognition_event_file or self._recognition_event_max_lines <= 0:
+            return
+
+        try:
+            with open(self._recognition_event_file, "r+", encoding="utf-8") as fh:
+                lines = fh.readlines()
+                if len(lines) <= self._recognition_event_max_lines:
+                    return
+                keep = lines[-self._recognition_event_max_lines :]
+                fh.seek(0)
+                fh.truncate(0)
+                fh.writelines(keep)
+        except Exception as exc:
+            if self._recognition_event_trim_error_logged:
+                return
+            print(
+                f"⚠️ Failed to trim recognition event file {self._recognition_event_file}: {exc}",
+                file=sys.stderr,
+            )
+            self._recognition_event_trim_error_logged = True
 
     def _draw_results(self, frame: np.ndarray, faces: List[FaceObject]) -> np.ndarray:
         result_frame = frame.copy()
@@ -384,6 +533,25 @@ def main() -> None:
     parser.add_argument("--use-arcface", action="store_true", default=True, help="Use ArcFace features (default: True, more accurate)")
     parser.add_argument("--use-legacy", action="store_true", help="Force use of legacy features (less accurate)")
     parser.add_argument("--arcface-model", type=str, help="Path to ArcFace ONNX model file")
+    parser.add_argument("--event-file", type=str, help="Write recognized-face JSON events to this file (newline-delimited)")
+    parser.add_argument(
+        "--event-file-mode",
+        type=str,
+        choices=["append", "overwrite"],
+        default="append",
+        help="How to handle the event file when the session starts",
+    )
+    parser.add_argument(
+        "--event-file-max-lines",
+        type=int,
+        default=1000,
+        help="Maximum number of lines to retain in the event file (<=0 disables trimming)",
+    )
+    parser.add_argument(
+        "--emit-test-event",
+        action="store_true",
+        help="Write a dummy recognized_face event to the log and exit",
+    )
 
     parser.set_defaults(show_legend=True, enable_liveness=False, enable_blur=True)
 
@@ -446,7 +614,12 @@ def main() -> None:
         "quality_interval": args.quality_interval,
         "fast_mode": args.fast,
         "opencv_threads": args.opencv_threads,
+        "recognition_event_append": args.event_file_mode != "overwrite",
+        "recognition_event_max_lines": args.event_file_max_lines,
     }
+
+    if args.event_file is not None:
+        config["recognition_event_file"] = args.event_file
 
     if args.show_landmarks is not None:
         config["show_landmarks"] = args.show_landmarks
@@ -454,6 +627,11 @@ def main() -> None:
     config["_overrides"] = overrides
 
     face_recognition = FaceRecognitionSystem(config, use_arcface, args.arcface_model)
+
+    if args.emit_test_event:
+        face_recognition.emit_test_event()
+        print("Test recognition event written.")
+        return
 
     if args.populate:
         print(f"Auto-populating database from {args.populate}")
