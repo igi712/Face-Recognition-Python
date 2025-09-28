@@ -97,7 +97,7 @@ class FaceRecognitionSystem:
         self.config["quality_cache_bucket"] = max(4, int(self.config.get("quality_cache_bucket", 16)))
 
         self.face_detector = FaceDetector()
-        self.feature_extractor = FaceFeatureExtractor(verbose=False)
+        self.feature_extractor = FaceFeatureExtractor()
         self.face_database = FaceDatabase(
             database_path=self.config["database_path"],
             max_items=self.config["max_database_items"],
