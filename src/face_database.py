@@ -45,10 +45,10 @@ class FaceDatabase:
         if self.use_arcface:
             self.arcface_extractor = ArcFaceExtractor(arcface_model_path, use_zscore_norm=use_zscore_norm)
             print("✅ Using ArcFace feature extraction" + (" (Z-score norm - Jetson Nano compatible)" if use_zscore_norm else " (L2 norm)"))
-            # Adjust threshold based on normalization method
+            # ✅ PAMERAN: Threshold dinaikkan ke 0.6 untuk accuracy
             # Z-score normalization menghasilkan range similarity yang berbeda
-            # Jetson Nano menggunakan threshold 0.5 dengan Z-score
-            self.similarity_threshold = 0.35 if use_zscore_norm else 0.5  # Lower for Z-score due to different distribution
+            # Jetson Nano asli: 0.5, tapi kita naikkan ke 0.6 untuk lebih strict
+            self.similarity_threshold = 0.55 if use_zscore_norm else 0.5  # Stricter untuk Z-score (0.6 → 0.7)
         else:
             self.arcface_extractor = None
             self.similarity_threshold = 0.8  # Lower threshold for legacy features
@@ -181,8 +181,14 @@ class FaceDatabase:
             
             # Check threshold
             if best_similarity >= threshold:
+                # ✅ DEBUG: Log match details
+                # matched_name = self.face_names[best_match_idx]
+                # print(f"🎯 MATCH: {matched_name} | Confidence: {best_similarity:.4f} | Threshold: {threshold:.2f}")
                 return best_match_idx, best_similarity
             else:
+                # ✅ DEBUG: Log rejection
+                # if best_similarity > 0:
+                #     print(f"❌ REJECT: Best match confidence {best_similarity:.4f} < threshold {threshold:.2f}")
                 return -1, 0.0
                 
         except Exception as e:

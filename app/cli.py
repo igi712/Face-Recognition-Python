@@ -37,16 +37,16 @@ class FaceRecognitionSystem:
     ) -> None:
         """Initialize the face recognition system."""
         self.config: Dict[str, object] = {
-            "min_face_size": 120,
+            "min_face_size": 100,  # ✅ PAMERAN: Slightly larger untuk filter
             "face_threshold": 0.5,
-            "recognition_threshold": 0.35,  # Lower threshold untuk Z-score normalization
-            "liveness_threshold": 0.93,
-            "max_blur": -20.0,
-            "max_angle": 15.0,
+            "recognition_threshold": 0.6,  # ✅ PAMERAN: Stricter untuk accuracy (0.35 → 0.6)
+            "liveness_threshold": 0.5,  # ✅ PAMERAN: Lower threshold (0.93 → 0.8)
+            "max_blur": -25.0,  # Sama seperti Jetson Nano (MaxBlur)
+            "max_angle": 10.0,  # Sama seperti Jetson Nano (MaxAngle)
             "max_database_items": 2000,
             "show_landmarks": True,
             "show_legend": True,
-            "enable_liveness": True,
+            "enable_liveness": False,  # ✅ DEFAULT OFF untuk FPS (seperti Jetson Nano #ifdef)
             "enable_blur_filter": True,
             "auto_add_faces": False,
             "database_path": "face_database_mobilefacenet.json",
@@ -54,17 +54,23 @@ class FaceRecognitionSystem:
             "use_arcface": use_arcface,
             "arcface_model_path": arcface_model_path,
             "use_zscore_norm": True,  # DEFAULT: Gunakan Z-score seperti Jetson Nano
-            "detection_downscale": 0.8,
-            "detection_frame_size": (320, 240),
-            "quality_interval": 1,
+            "detection_downscale": 1.0,  # ✅ No downscale, langsung resize ke detection_frame_size
+            "detection_frame_size": (320, 240),  # Sama seperti Jetson Nano (RetinaWidth/Height)
+            "quality_interval": 3,  # ✅ Check quality setiap 3 frame untuk FPS boost
+            "max_faces_to_process": 2,  # ✅ PAMERAN: 2 wajah untuk handle multiple pejabat
+            "min_face_prob_threshold": 0.75,  # ✅ PAMERAN: Higher threshold (0.7 → 0.75)
             "fast_mode": False,
             "quality_cache_bucket": 16,
             "opencv_threads": None,
-            "recognition_event_cooldown": 1.5,
+            # ✅ PAMERAN ISSAT - ROBOT GREETING SETTINGS
+            "recognition_event_cooldown": 5.0,  # 5 detik cooldown (prevent spam saat bergerak)
             "recognition_event_enabled": True,
-            "recognition_event_file": str(PROJECT_ROOT / "output" / "recognized_faces.json"),
+            "recognition_event_file": str(PROJECT_ROOT / "temp" / "robot_events.jsonl"),  # File khusus robot
             "recognition_event_append": True,
-            "recognition_event_max_lines": 1000,
+            "recognition_event_max_lines": 500,  # Lebih kecil untuk robot (1000 → 500)
+            "recognition_event_cooldown_by_name_only": True,  # ✅ CRITICAL: Cooldown by name only!
+            "emit_face_lost_events": True,  # ✅ PAMERAN: Enable face_lost untuk goodbye
+            "face_lost_timeout": 3.0,  # 3 detik sebelum emit face_lost
         }
 
         if config:
@@ -78,19 +84,25 @@ class FaceRecognitionSystem:
         if detection_frame_override and not self._overrides.get("detection_frame_size"):
             self._overrides["detection_frame_size"] = True
 
+        # ✅ Fast Mode Optimization (Enhanced untuk FPS maksimal)
         if self.config.get("fast_mode"):
             if not self._overrides.get("detection_downscale") and self.config.get("detection_downscale", 1.0) == 1.0:
-                self.config["detection_downscale"] = 0.6
+                self.config["detection_downscale"] = 0.6  # More aggressive downscale
             if not self._overrides.get("enable_liveness"):
                 self.config["enable_liveness"] = False
             if not self._overrides.get("enable_blur_filter"):
-                self.config["enable_blur_filter"] = False
+                self.config["enable_blur_filter"] = False  # Disable blur filter in fast mode
             if not self._overrides.get("show_landmarks"):
                 self.config["show_landmarks"] = False
             if not self._overrides.get("quality_interval"):
-                self.config["quality_interval"] = max(self.config.get("quality_interval", 1), 3)
+                self.config["quality_interval"] = max(self.config.get("quality_interval", 3), 5)  # Check every 5 frames
             if not self._overrides.get("detection_frame_size"):
-                self.config["detection_frame_size"] = None
+                self.config["detection_frame_size"] = (240, 180)  # Smaller untuk fast mode
+            # Additional fast mode optimizations
+            if not self._overrides.get("max_faces_to_process"):
+                self.config["max_faces_to_process"] = 1  # Force single face
+            if not self._overrides.get("min_face_prob_threshold"):
+                self.config["min_face_prob_threshold"] = 0.75  # Higher threshold for fast mode
 
         self.config["quality_interval"] = max(1, int(self.config.get("quality_interval", 1)))
         downscale = float(self.config.get("detection_downscale", 1.0))
@@ -111,6 +123,8 @@ class FaceRecognitionSystem:
         self.frame_count = 0
         self._quality_cache: Dict[Tuple[int, int, int, int], Tuple[dict, int]] = {}
         self._recognition_event_cache: Dict[str, float] = {}
+        self._active_faces: Dict[str, float] = {}  # Track wajah yang sedang terdeteksi (name -> last_seen_time)
+        self._face_lost_emitted: Dict[str, bool] = {}  # Track apakah face_lost sudah di-emit
         self._recognition_event_file_error_logged = False
         self._recognition_event_trim_error_logged = False
 
@@ -207,8 +221,24 @@ class FaceRecognitionSystem:
             self.config.get("face_threshold", 0.0),
         )
 
+        # ✅ OPTIMIZATION 1: Limit face count (seperti Jetson Nano: if(Faces.size()==1))
+        max_faces = self.config.get("max_faces_to_process", 1)
+        if len(faces) > max_faces:
+            # Sort by area (largest first) and keep only max_faces
+            faces.sort(key=lambda f: f.rect[2] * f.rect[3], reverse=True)
+            faces = faces[:max_faces]
+
         for face in faces:
+            # ✅ OPTIMIZATION 2: Early rejection on low face probability
+            min_face_prob = self.config.get("min_face_prob_threshold", 0.0)
+            if min_face_prob > 0 and face.face_prob < min_face_prob:
+                face.name_index = -2  # Mark as too uncertain
+                continue
+            
             self._process_single_face(frame, face)
+        
+        # Check untuk face_lost events (untuk robot greeting di pameran)
+        self._check_face_lost_events()
 
         result_frame = self._draw_results(frame, faces)
         self._cleanup_quality_cache()
@@ -276,7 +306,13 @@ class FaceRecognitionSystem:
             face.color = 2
             return
 
-        needs_liveness = self.config.get("enable_liveness", True) and face.name_index >= 0
+        # ✅ OPTIMIZATION 3: Liveness hanya untuk recognized + large faces (seperti Jetson Nano)
+        # Jetson: #ifdef TEST_LIVING ... if(recognized && large_enough)
+        needs_liveness = (
+            self.config.get("enable_liveness", False) 
+            and face.name_index >= 0  # Hanya jika RECOGNIZED
+            and h >= self.config["min_face_size"]  # Dan ukuran cukup besar
+        )
 
         if needs_liveness:
             live_score, is_live = self.quality_assessor.assess_liveness(face_region)
@@ -316,6 +352,37 @@ class FaceRecognitionSystem:
         for key in keys_to_delete:
             self._quality_cache.pop(key, None)
 
+    def _check_face_lost_events(self) -> None:
+        """Check apakah ada wajah yang sudah tidak terdeteksi (untuk robot greeting)"""
+        if not self.config.get("emit_face_lost_events", False):
+            return
+        
+        timeout = float(self.config.get("face_lost_timeout", 3.0) or 3.0)
+        now = time.time()
+        
+        for name, last_seen in list(self._active_faces.items()):
+            time_since_seen = now - last_seen
+            already_emitted = self._face_lost_emitted.get(name, False)
+            
+            if time_since_seen > timeout and not already_emitted:
+                # Wajah sudah tidak terlihat selama > timeout
+                payload = {
+                    "event": "face_lost",
+                    "name": name,
+                    "frame_index": self.frame_count,
+                    "timestamp": now,
+                    "last_seen": last_seen,
+                    "seconds_since_seen": round(time_since_seen, 2),
+                }
+                print(json.dumps(payload), flush=True)
+                self._write_recognition_event(payload)
+                self._face_lost_emitted[name] = True
+                
+                # Optional: cleanup old entries
+                if time_since_seen > (timeout * 5):  # 5x timeout = definisi "gone"
+                    self._active_faces.pop(name, None)
+                    self._face_lost_emitted.pop(name, None)
+
     def _auto_add_face(self, face_region: np.ndarray, landmarks: List) -> None:
         timestamp = int(time.time())
         unknown_name = f"Unknown_{timestamp}"
@@ -330,13 +397,23 @@ class FaceRecognitionSystem:
 
         name = self.face_database.get_name(face.name_index)
         x, y, w, h = face.rect
-        cache_key = self._make_face_cache_key(face)
-        event_key = f"{name}:{cache_key}"
+        
+        # ✅ PAMERAN MODE: Cooldown berdasarkan NAMA saja (tidak peduli posisi)
+        # Ini mencegah robot menyapa berulang saat pejabat bergerak
+        cooldown_by_name_only = self.config.get("recognition_event_cooldown_by_name_only", False)
+        if cooldown_by_name_only:
+            event_key = name  # Hanya nama, bukan posisi
+        else:
+            cache_key = self._make_face_cache_key(face)
+            event_key = f"{name}:{cache_key}"  # Nama + posisi (default)
 
         cooldown = float(self.config.get("recognition_event_cooldown", 0.0) or 0.0)
         now = time.time()
         last_time = self._recognition_event_cache.get(event_key, -float("inf"))
         if cooldown > 0.0 and (now - last_time) < cooldown:
+            # Update last seen time untuk face_lost tracking
+            self._active_faces[name] = now
+            self._face_lost_emitted[name] = False  # Reset karena masih terlihat
             return
 
         liveness_threshold = float(self.config.get("liveness_threshold", 0.0) or 0.0)
@@ -351,10 +428,6 @@ class FaceRecognitionSystem:
             "timestamp": now,
             "confidence": round(float(face.name_prob), 4),
             "face_probability": round(float(face.face_prob), 4),
-            "liveness": {
-                "score": round(live_score, 4),
-                "passed": liveness_passed,
-            },
             "bbox": {
                 "x": int(x),
                 "y": int(y),
@@ -362,10 +435,21 @@ class FaceRecognitionSystem:
                 "height": int(h),
             },
         }
+        
+        # ✅ Hanya tampilkan liveness jika ENABLED (untuk hemat bandwidth robot)
+        if liveness_enabled:
+            payload["liveness"] = {
+                "score": round(live_score, 4),
+                "passed": liveness_passed,
+            }
 
         print(json.dumps(payload), flush=True)
         self._write_recognition_event(payload)
         self._recognition_event_cache[event_key] = now
+        
+        # Track wajah yang sedang terdeteksi untuk face_lost events
+        self._active_faces[name] = now
+        self._face_lost_emitted[name] = False  # Reset karena baru saja recognized
 
     def emit_test_event(self) -> None:
         now = time.time()
@@ -524,8 +608,8 @@ def main() -> None:
     parser.add_argument("--hide-landmarks", dest="show_landmarks", action="store_const", const=False, help="Do not draw facial landmarks (speed boost)")
     parser.add_argument("--show-legend", dest="show_legend", action="store_true", help="Show information legend (default)")
     parser.add_argument("--hide-legend", dest="show_legend", action="store_false", help="Hide information legend")
-    parser.add_argument("--enable-liveness", dest="enable_liveness", action="store_true", help="Enable liveness detection (default)")
-    parser.add_argument("--disable-liveness", dest="enable_liveness", action="store_false", help="Disable liveness detection for speed")
+    parser.add_argument("--enable-liveness", dest="enable_liveness", action="store_true", help="Enable liveness detection (anti-spoofing)")
+    parser.add_argument("--disable-liveness", dest="enable_liveness", action="store_false", help="Disable liveness detection for speed (DEFAULT for camera)")
     parser.add_argument("--enable-blur-filter", dest="enable_blur", action="store_true", help="Enable blur-based quality filtering (default)")
     parser.add_argument("--disable-blur-filter", dest="enable_blur", action="store_false", help="Disable blur filtering for speed")
     parser.add_argument("--detection-downscale", type=float, default=1.0, help="Resize factor (<1.0) applied before detection to boost FPS")
@@ -576,9 +660,11 @@ def main() -> None:
 
     input_source_hint = args.input
     is_camera_input = input_source_hint.isdigit()
-
-    if not overrides["enable_liveness"]:
-        args.enable_liveness = is_camera_input
+    
+    # ✅ CAMERA OPTIMIZATION: Force liveness OFF untuk camera (FPS priority)
+    if is_camera_input and not flag_provided("--enable-liveness"):
+        args.enable_liveness = False
+        print("📹 Camera mode detected: Liveness detection DISABLED for FPS")
 
     if args.fast:
         if not overrides["detection_downscale"] and args.detection_downscale == 1.0:
@@ -600,13 +686,13 @@ def main() -> None:
         print("🚀 Using ArcFace features (more accurate)")
 
     if args.threshold is None:
-        threshold = 0.4 if use_arcface else 0.8
+        # ✅ PERBAIKAN: Gunakan threshold dari config.json (0.6) bukan hardcoded
+        threshold = None  # Let config.json decide
     else:
         threshold = args.threshold
 
     config = {
         "database_path": args.database,
-        "recognition_threshold": threshold,
         "min_face_size": args.min_size,
         "show_legend": args.show_legend,
         "enable_liveness": args.enable_liveness,
@@ -622,6 +708,10 @@ def main() -> None:
         "recognition_event_append": args.event_file_mode != "overwrite",
         "recognition_event_max_lines": args.event_file_max_lines,
     }
+    
+    # ✅ Only override recognition_threshold if explicitly provided
+    if threshold is not None:
+        config["recognition_threshold"] = threshold
 
     if args.event_file is not None:
         config["recognition_event_file"] = args.event_file

@@ -99,10 +99,25 @@ class ConfigManager:
     def save_config(self) -> bool:
         """
         Save current configuration to file
+        
+        ⚠️ WARNING: This will OVERWRITE config.json!
+        Only call this method if you explicitly want to save/reset config.
+        Main application (app/cli.py) does NOT use this method.
+        Config changes in app/cli.py are runtime-only and not persisted.
+        
         Returns:
             True if saved successfully
         """
         try:
+            # Create backup before overwriting
+            if os.path.exists(self.config_path):
+                import shutil
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_path = f"{self.config_path}.backup.{timestamp}"
+                shutil.copy2(self.config_path, backup_path)
+                print(f"📁 Backup created: {backup_path}")
+            
             with open(self.config_path, 'w') as f:
                 json.dump(self.config, f, indent=2)
             
