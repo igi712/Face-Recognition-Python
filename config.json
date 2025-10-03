@@ -3,7 +3,7 @@
   
   "min_face_size": 100,
   "face_threshold": 0.5,
-  "recognition_threshold": 0.7,
+  "recognition_threshold": 0.55,
   "liveness_threshold": 0.5,
   "max_blur": -25.0,
   "max_angle": 10.0,
