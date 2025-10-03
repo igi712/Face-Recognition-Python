@@ -65,7 +65,7 @@ class FaceRecognitionSystem:
             # ✅ PAMERAN ISSAT - ROBOT GREETING SETTINGS
             "recognition_event_cooldown": 5.0,  # 5 detik cooldown (prevent spam saat bergerak)
             "recognition_event_enabled": True,
-            "recognition_event_file": str(PROJECT_ROOT / "temp" / "robot_events.jsonl"),  # File khusus robot
+            "recognition_event_file": str(PROJECT_ROOT / "output" / "events.json"),  # File khusus robot
             "recognition_event_append": True,
             "recognition_event_max_lines": 500,  # Lebih kecil untuk robot (1000 → 500)
             "recognition_event_cooldown_by_name_only": True,  # ✅ CRITICAL: Cooldown by name only!
