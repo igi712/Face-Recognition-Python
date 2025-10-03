@@ -44,7 +44,7 @@ class ArcFaceExtractor:
                  input_size: Tuple[int, int] = (112, 112),
                  use_ncnn: bool = True,
                  use_fallback: bool = True,
-                 use_zscore_norm: bool = False):
+                 use_zscore_norm: bool = True):  # ✅ DEFAULT TRUE seperti Jetson Nano
         """
         Initialize ArcFace feature extractor
         Args:
@@ -232,36 +232,120 @@ class ArcFaceExtractor:
     
     def _align_face(self, face_image: np.ndarray, landmarks: list) -> np.ndarray:
         """
-        Align face based on eye landmarks
+        Align face based on landmarks using similar transform (like Jetson Nano TWarp)
         Args:
             face_image: Input face image
-            landmarks: Facial landmarks [(x1,y1), (x2,y2), ...]
+            landmarks: Facial landmarks [(x1,y1), (x2,y2), ...] - expects 5 points
         Returns:
-            Aligned face image
+            Aligned face image (112x112)
         """
         if len(landmarks) < 2:
-            return face_image
+            return cv2.resize(face_image, (112, 112))
         
-        # Use eye positions for alignment (landmarks 0 and 1 are typically eyes)
-        left_eye = np.array(landmarks[0], dtype=np.float32)
-        right_eye = np.array(landmarks[1], dtype=np.float32)
+        # Standard reference points for 112x112 face (from ArcFace/MobileFaceNet)
+        # These are the ideal positions for landmarks in aligned face
+        reference_points = np.array([
+            [38.2946, 51.6963],  # Left eye
+            [73.5318, 51.5014],  # Right eye  
+            [56.0252, 71.7366],  # Nose tip
+            [41.5493, 92.3655],  # Left mouth corner
+            [70.7299, 92.2041]   # Right mouth corner
+        ], dtype=np.float32)
         
-        # Calculate angle between eyes
-        dx = right_eye[0] - left_eye[0]
-        dy = right_eye[1] - left_eye[1]
-        angle = np.arctan2(dy, dx) * 180.0 / np.pi
+        # Convert landmarks to numpy array
+        src_points = np.array(landmarks[:5], dtype=np.float32)
         
-        # Calculate center point between eyes
-        eye_center = ((left_eye[0] + right_eye[0]) / 2, (left_eye[1] + right_eye[1]) / 2)
+        # Use minimum of available landmarks
+        num_points = min(len(src_points), len(reference_points))
+        if num_points < 2:
+            return cv2.resize(face_image, (112, 112))
         
-        # Create rotation matrix
-        rotation_matrix = cv2.getRotationMatrix2D(eye_center, angle, 1.0)
+        # Estimate affine transform using similar transform
+        # This matches the TWarp::SimilarTransform approach from Jetson Nano
+        if num_points >= 5:
+            # Use all 5 points for most accurate alignment
+            transform_matrix = self._estimate_similar_transform(
+                src_points[:5], reference_points[:5]
+            )
+        elif num_points >= 3:
+            # Use available points
+            transform_matrix = cv2.estimateAffinePartial2D(
+                src_points[:num_points], 
+                reference_points[:num_points],
+                method=cv2.LMEDS
+            )[0]
+        else:
+            # Use just eyes for basic alignment
+            transform_matrix = cv2.estimateAffinePartial2D(
+                src_points[:2], 
+                reference_points[:2],
+                method=cv2.LMEDS
+            )[0]
         
-        # Apply rotation
-        height, width = face_image.shape[:2]
-        aligned = cv2.warpAffine(face_image, rotation_matrix, (width, height), flags=cv2.INTER_LINEAR)
+        if transform_matrix is None:
+            return cv2.resize(face_image, (112, 112))
+        
+        # Apply affine transformation to get aligned 112x112 face
+        aligned = cv2.warpAffine(
+            face_image, 
+            transform_matrix, 
+            (112, 112),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0
+        )
         
         return aligned
+    
+    def _estimate_similar_transform(self, src: np.ndarray, dst: np.ndarray) -> np.ndarray:
+        """
+        Estimate similar transform matrix (like Jetson Nano TWarp::SimilarTransform)
+        This uses Umeyama algorithm for similarity transformation
+        """
+        num = src.shape[0]
+        dim = src.shape[1]
+        
+        # Compute means
+        src_mean = src.mean(axis=0)
+        dst_mean = dst.mean(axis=0)
+        
+        # Center the points
+        src_demean = src - src_mean
+        dst_demean = dst - dst_mean
+        
+        # Compute covariance matrix
+        A = dst_demean.T @ src_demean / num
+        
+        # SVD
+        U, S, Vt = np.linalg.svd(A)
+        
+        # Construct transformation matrix
+        d = np.ones(dim)
+        if np.linalg.det(A) < 0:
+            d[dim - 1] = -1
+        
+        T = np.eye(dim + 1, dtype=np.float32)
+        
+        rank = np.linalg.matrix_rank(A)
+        if rank >= dim - 1:
+            if np.linalg.det(U) * np.linalg.det(Vt) > 0:
+                T[:dim, :dim] = U @ Vt
+            else:
+                d[dim - 1] = -1
+                T[:dim, :dim] = U @ np.diag(d) @ Vt
+        else:
+            T[:dim, :dim] = U @ np.diag(d) @ Vt
+        
+        # Compute scale
+        var_src = np.var(src_demean, axis=0).sum()
+        scale = 1.0 / var_src * (S * d).sum()
+        
+        # Apply scale and translation
+        T[:dim, :dim] *= scale
+        T[:dim, dim] = dst_mean - scale * (T[:dim, :dim] @ src_mean)
+        
+        # Return 2x3 affine matrix
+        return T[:2, :]
     
     def _l2_normalize(self, feature: np.ndarray) -> np.ndarray:
         """
@@ -429,7 +513,7 @@ class MobileFaceNetExtractor(ArcFaceExtractor):
     Optimized for mobile/edge deployment
     """
     
-    def __init__(self, model_path: Optional[str] = None, use_zscore_norm: bool = False):
+    def __init__(self, model_path: Optional[str] = None, use_zscore_norm: bool = True):  # ✅ DEFAULT TRUE
         """Initialize MobileFaceNet extractor"""
         super().__init__(model_path, input_size=(112, 112), use_zscore_norm=use_zscore_norm)
         self.feature_dim = 128  # MobileFaceNet standard output

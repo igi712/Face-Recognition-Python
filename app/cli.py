@@ -39,7 +39,7 @@ class FaceRecognitionSystem:
         self.config: Dict[str, object] = {
             "min_face_size": 120,
             "face_threshold": 0.5,
-            "recognition_threshold": 0.5,
+            "recognition_threshold": 0.35,  # Lower threshold untuk Z-score normalization
             "liveness_threshold": 0.93,
             "max_blur": -20.0,
             "max_angle": 15.0,
@@ -53,6 +53,7 @@ class FaceRecognitionSystem:
             "images_directory": "images",
             "use_arcface": use_arcface,
             "arcface_model_path": arcface_model_path,
+            "use_zscore_norm": True,  # DEFAULT: Gunakan Z-score seperti Jetson Nano
             "detection_downscale": 0.8,
             "detection_frame_size": (320, 240),
             "quality_interval": 1,
@@ -61,7 +62,7 @@ class FaceRecognitionSystem:
             "opencv_threads": None,
             "recognition_event_cooldown": 1.5,
             "recognition_event_enabled": True,
-            "recognition_event_file": str(PROJECT_ROOT / "temp" / "recognized_faces.jsonl"),
+            "recognition_event_file": str(PROJECT_ROOT / "output" / "recognized_faces.json"),
             "recognition_event_append": True,
             "recognition_event_max_lines": 1000,
         }
@@ -103,7 +104,7 @@ class FaceRecognitionSystem:
             max_items=self.config["max_database_items"],
             use_arcface=self.config["use_arcface"],
             arcface_model_path=self.config["arcface_model_path"],
-            use_zscore_norm=self.config["use_zscore_norm"],
+            use_zscore_norm=self.config.get("use_zscore_norm", True),  # Default TRUE seperti Jetson Nano
         )
         self.quality_assessor = FaceQualityAssessment(fast_mode=self.config.get("fast_mode", False))
 
@@ -534,7 +535,8 @@ def main() -> None:
     parser.add_argument("--use-arcface", action="store_true", default=True, help="Use ArcFace features (default: True, more accurate)")
     parser.add_argument("--use-legacy", action="store_true", help="Force use of legacy features (less accurate)")
     parser.add_argument("--arcface-model", type=str, help="Path to ArcFace ONNX model file")
-    parser.add_argument("--use-zscore-norm", action="store_true", help="Use Z-score normalization (like Jetson Nano, may improve confidence scores)")
+    parser.add_argument("--use-zscore-norm", action="store_true", default=True, help="Use Z-score normalization (like Jetson Nano) - DEFAULT")
+    parser.add_argument("--use-l2-norm", dest="use_zscore_norm", action="store_false", help="Use L2 normalization instead of Z-score")
     parser.add_argument("--event-file", type=str, help="Write recognized-face JSON events to this file (newline-delimited)")
     parser.add_argument(
         "--event-file-mode",

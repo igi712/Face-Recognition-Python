@@ -38,7 +38,7 @@ python face_recognition_main.py kdmjejetest.jpg
 
 Populate database (opsional) sebelum jalan:
 ```bash
-python tools/mobilefacenet.py --images images_processed --clear --populate --use-zscore-norm
+python rebuild_database_zscore.py
 ```
 
 Lalu jalankan dengan database itu:
