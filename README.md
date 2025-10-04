@@ -6,18 +6,12 @@ A Python implementation of a face recognition system based on the Face-Recogniti
 ## 🔰 Quick Start
 
 ### What you need to install (Apa saja yang perlu di‑install)
-1. Python (recommended 3.11) 
+1. Python
 2. Git (optional, if cloning)  
 3. Project dependencies:
   ```bash
   pip install -r requirements.txt
   ```
-4. (Optional – for better accuracy / performance):
-  ```bash
-  pip install onnxruntime  # ONNX ArcFace models
-  pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu  # Optional
-  ```
-  Catatan: Paket `ncnn` sudah otomatis ada di `requirements.txt`. Jika instalasi gagal di platform Anda, hapus atau comment barisnya di `requirements.txt`; sistem akan fallback otomatis.
 
 ### Jalankan (Run)
 Run dengan camera
@@ -32,7 +26,7 @@ python face_recognition_main.py kdmjeje2.mp4
 
 Run dengan citra
 ```bash
-python face_recognition_main.py kdmjejetest.jpg
+python face_recognition_main.py kdmjejetest.png
 ```
 
 
