@@ -43,7 +43,7 @@ python rebuild_database_zscore.py
 
 Lalu jalankan dengan database itu:
 ```bash
-python face_recognition_main.py 0 --database face_database_mobilefacenet.json --use-arcface --use-zscore-norm
+python face_recognition_main.py 0 --database face_database.json --use-arcface --use-zscore-norm
 ```
 
 Mode legacy tanpa ArcFace:
@@ -64,5 +64,47 @@ Tekan `s` untuk save database, `q` untuk keluar.
 2. (Opsional) Populate database
 3. Jalankan aplikasi webcam
 4. Tekan `q` untuk exit / `s` untuk save
+
+---
+## 📁 Output dan File yang Dihasilkan
+Sistem ini menghasilkan beberapa output selama proses:
+
+### 1. Dataset Wajah (dari `image_processor.py`)
+- **Input**: Folder `images/` berisi gambar mentah
+- **Output**: Folder `images_processed/` berisi gambar wajah yang sudah di-crop dan di-align (112x112 pixels)
+- **Format**: JPG/PNG, satu folder per orang
+
+### 2. Database Wajah (dari `rebuild_database_zscore.py`)
+- **Input**: Folder `images_processed/`
+- **Output**: File `face_database.json` berisi fitur wajah yang diekstrak dengan Z-score normalization
+- **Backup**: Otomatis dibuat sebagai `face_database.json.backup_[timestamp]` sebelum rebuild
+
+### 3. Recognition Real-time (dari `face_recognition_main.py`)
+- **Input**: Webcam/video/citra
+- **Output di Layar**: 
+  - Bounding box wajah dengan nama/label
+  - Confidence score
+  - Landmark points (opsional)
+  - Status liveness/blur detection (jika aktif)
+- **Output File** (opsional):
+  - `output/events.json`: Log event recognition (misal face_lost, face_detected) untuk robot greeting
+  - Screenshot otomatis jika ada event tertentu
+
+### 4. Folder Struktur
+```
+Face-Recognition-Python/
+├── images/              # Input gambar mentah
+├── images_processed/    # Output dataset wajah
+├── face_database.json   # Database fitur wajah
+├── output/              # Log events dan output lainnya
+└── temp/                # File temporary
+```
+
+---
+## ⚙️ Konfigurasi
+- Edit `config.json` untuk setting default
+- Argumen command-line override config
+- Model ArcFace/ONNX untuk akurasi tinggi
+- Z-score normalization untuk kompatibilitas Jetson Nano
 
 
