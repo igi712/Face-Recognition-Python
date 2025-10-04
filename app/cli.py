@@ -737,89 +737,127 @@ def main() -> None:
     if input_source.isdigit():
         input_source = int(input_source)
         is_camera = True
+        is_image = False
     else:
+        # Check if it's an image file
+        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif', '.webp'}
+        is_image = any(input_source.lower().endswith(ext) for ext in image_extensions)
         is_camera = False
 
-    cap = cv2.VideoCapture(input_source)
-    if not cap.isOpened():
-        print(f"Error: Could not open input source: {input_source}")
-        return
-
-    print("Face Recognition System started. Press 'q' to quit, 's' to save database.")
-
-    try:
-        while True:
-            start_time = time.time()
-            ret, frame = cap.read()
-            if not ret:
-                if is_camera:
-                    print("Error reading from camera")
-                    break
-                else:
-                    print("End of video file reached")
-                    print("\nVideo processing completed!")
-                    print("Options:")
-                    print("  r - Process another video")
-                    print("  q - Quit")
-                    print("  s - Save database and quit")
-                    
-                    while True:
-                        try:
-                            choice = input("Choose an option (r/q/s): ").strip().lower()
-                            if choice == 'r':
-                                # Get new video path
-                                new_video = input("Enter video file path: ").strip()
-                                if new_video and os.path.exists(new_video):
-                                    cap.release()
-                                    cap = cv2.VideoCapture(new_video)
-                                    if cap.isOpened():
-                                        print(f"Processing new video: {new_video}")
-                                        break
-                                    else:
-                                        print(f"Could not open video: {new_video}")
-                                        cap = cv2.VideoCapture(input_source)  # Reopen original
-                                else:
-                                    print("Invalid video path or file not found")
-                            elif choice == 's':
-                                face_recognition.save_database()
-                                print("Database saved")
-                                return
-                            elif choice == 'q':
-                                return
-                            else:
-                                print("Invalid choice. Please enter 'r', 'q', or 's'")
-                        except (EOFError, KeyboardInterrupt):
-                            print("\nExiting...")
-                            return
-                    
-                    continue  # Continue the main loop with new video
-
-            result_frame, faces = face_recognition.process_frame(frame)
-
-            end_time = time.time()
-            fps = 1.0 / (end_time - start_time) if end_time > start_time else 0
-            face_recognition.update_fps(fps)
-
-            avg_fps = face_recognition.get_average_fps()
-            cv2.putText(result_frame, f"FPS: {avg_fps:.1f}", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-
-            cv2.imshow("Face Recognition System", result_frame)
-
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord("q"):
-                break
-            if key == ord("s"):
-                face_recognition.save_database()
-                print("Database saved")
-
-    except KeyboardInterrupt:
-        print("Interrupted by user")
-
-    finally:
-        cap.release()
+    if is_image:
+        # Load image with alpha channel support
+        frame = cv2.imread(input_source, cv2.IMREAD_UNCHANGED)
+        if frame is None:
+            print(f"Error: Could not load image: {input_source}")
+            return
+        
+        # Handle alpha channel
+        if frame.shape[2] == 4:  # RGBA
+            print("📷 Image has alpha channel - converting to BGR")
+            # Convert RGBA to BGR (ignore alpha for face detection)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+        elif frame.shape[2] == 3:  # BGR
+            pass  # Already in correct format
+        else:
+            print(f"Warning: Unexpected image channels: {frame.shape[2]}")
+        
+        print(f"📷 Processing single image: {input_source} ({frame.shape[1]}x{frame.shape[0]})")
+        
+        # Process single frame
+        result_frame, faces = face_recognition.process_frame(frame)
+        
+        # Display result
+        cv2.imshow("Face Recognition System", result_frame)
+        print("Press any key to exit...")
+        cv2.waitKey(0)
         cv2.destroyAllWindows()
+        
+        # Save database if needed
         face_recognition.save_database()
         print("Face Recognition System stopped")
+        
+    else:
+        # Video or camera input
+        cap = cv2.VideoCapture(input_source)
+        if not cap.isOpened():
+            print(f"Error: Could not open input source: {input_source}")
+            return
+
+        print("Face Recognition System started. Press 'q' to quit, 's' to save database.")
+
+        try:
+            while True:
+                start_time = time.time()
+                ret, frame = cap.read()
+                if not ret:
+                    if is_camera:
+                        print("Error reading from camera")
+                        break
+                    else:
+                        print("End of video file reached")
+                        print("\nVideo processing completed!")
+                        print("Options:")
+                        print("  r - Process another video")
+                        print("  q - Quit")
+                        print("  s - Save database and quit")
+                        
+                        while True:
+                            try:
+                                choice = input("Choose an option (r/q/s): ").strip().lower()
+                                if choice == 'r':
+                                    # Get new video path
+                                    new_video = input("Enter video file path: ").strip()
+                                    if new_video and os.path.exists(new_video):
+                                        cap.release()
+                                        cap = cv2.VideoCapture(new_video)
+                                        if cap.isOpened():
+                                            print(f"Processing new video: {new_video}")
+                                            break
+                                        else:
+                                            print(f"Could not open video: {new_video}")
+                                            cap = cv2.VideoCapture(input_source)  # Reopen original
+                                    else:
+                                        print("Invalid video path or file not found")
+                                elif choice == 's':
+                                    face_recognition.save_database()
+                                    print("Database saved")
+                                    return
+                                elif choice == 'q':
+                                    return
+                                else:
+                                    print("Invalid choice. Please enter 'r', 'q', or 's'")
+                            except (EOFError, KeyboardInterrupt):
+                                print("\nExiting...")
+                                return
+                        
+                        continue  # Continue the main loop with new video
+
+                result_frame, faces = face_recognition.process_frame(frame)
+
+                end_time = time.time()
+                fps = 1.0 / (end_time - start_time) if end_time > start_time else 0
+                face_recognition.update_fps(fps)
+
+                avg_fps = face_recognition.get_average_fps()
+                cv2.putText(result_frame, f"FPS: {avg_fps:.1f}", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+                cv2.imshow("Face Recognition System", result_frame)
+
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord("q"):
+                    break
+                if key == ord("s"):
+                    face_recognition.save_database()
+                    print("Database saved")
+
+        except KeyboardInterrupt:
+            print("Interrupted by user")
+
+        finally:
+            cap.release()
+            cv2.destroyAllWindows()
+            face_recognition.save_database()
+            print("Face Recognition System stopped")
 
 
 if __name__ == "__main__":
