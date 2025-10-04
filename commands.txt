@@ -1,3 +1,0 @@
-python image_analyzer.py --process images/ --output images_processed/
-python db_manager.py --clear --populate images_processed/ --database face_database_mobilefacenet.json
-python arcface_upgrader.py --upgrade --source face_database_mobilefacenet.json --target face_database_mobilefacenet.json --images images_processed/

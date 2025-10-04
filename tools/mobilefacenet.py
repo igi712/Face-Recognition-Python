@@ -32,7 +32,7 @@ class MobileFaceNetPopulator:
     metadata flag is stored so downstream consumers can adjust thresholds.
     """
 
-    def __init__(self, database_path: str = "face_database_mobilefacenet.json", *, use_zscore_norm: bool = False) -> None:
+    def __init__(self, database_path: str = "face_database.json", *, use_zscore_norm: bool = False) -> None:
         self.database_path = database_path
         self.use_zscore_norm = use_zscore_norm
         self.feature_extractor = MobileFaceNetExtractor(use_zscore_norm=use_zscore_norm)
@@ -181,7 +181,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="MobileFaceNet Database Populator",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument("--database", type=str, default="face_database_mobilefacenet.json", help="Database file path")
+    parser.add_argument("--database", type=str, default="face_database.json", help="Database file path")
     parser.add_argument("--images", type=str, default="images_processed/", help="Images directory to process")
     parser.add_argument("--clear", action="store_true", help="Clear database before populating")
     parser.add_argument("--stats", action="store_true", help="Show database statistics only")

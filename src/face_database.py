@@ -24,7 +24,7 @@ except ImportError:
 class FaceDatabase:
     """Face database for storing and matching face features"""
     
-    def __init__(self, database_path: str = "face_database_mobilefacenet.json", max_items: int = 2000,
+    def __init__(self, database_path: str = "face_database.json", max_items: int = 2000,
                  use_arcface: bool = True, arcface_model_path: Optional[str] = None, use_zscore_norm: bool = True):
         """
         Initialize face database

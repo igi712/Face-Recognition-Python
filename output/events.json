@@ -227,3 +227,7 @@
 {"event": "recognized_face", "name": "Pak Dedi Mulyadi", "frame_index": 43, "timestamp": 1759465070.8979669, "confidence": 0.8199, "face_probability": 0.9937, "liveness": {"score": 1.0, "passed": true}, "bbox": {"x": 54, "y": 423, "width": 252, "height": 320}}
 {"event": "recognized_face", "name": "Pak Dedi Mulyadi", "frame_index": 44, "timestamp": 1759465070.981524, "confidence": 0.8036, "face_probability": 0.9938, "liveness": {"score": 1.0, "passed": true}, "bbox": {"x": 54, "y": 425, "width": 252, "height": 318}}
 {"event": "recognized_face", "name": "Pak Jeje", "frame_index": 46, "timestamp": 1759465071.1244502, "confidence": 0.837, "face_probability": 0.9832, "liveness": {"score": 1.0, "passed": true}, "bbox": {"x": 400, "y": 449, "width": 318, "height": 453}}
+{"event": "recognized_face", "name": "Pak Brian", "frame_index": 8, "timestamp": 1759550159.4180918, "confidence": 0.6021, "face_probability": 0.996, "bbox": {"x": 279, "y": 268, "width": 137, "height": 187}}
+{"event": "face_lost", "name": "Pak Brian", "frame_index": 30, "timestamp": 1759550162.4804385, "last_seen": 1759550159.4180918, "seconds_since_seen": 3.06}
+{"event": "recognized_face", "name": "Pak Brian", "frame_index": 103, "timestamp": 1759550171.0927327, "confidence": 0.6002, "face_probability": 0.996, "bbox": {"x": 262, "y": 265, "width": 137, "height": 183}}
+{"event": "face_lost", "name": "Pak Brian", "frame_index": 128, "timestamp": 1759550174.156682, "last_seen": 1759550171.0927327, "seconds_since_seen": 3.06}

@@ -47,7 +47,7 @@ def backup_old_database(db_path: str) -> bool:
 
 def rebuild_database(
     images_dir: str = "images_processed",
-    db_path: str = "face_database_mobilefacenet.json"
+    db_path: str = "face_database.json"
 ) -> bool:
     """Rebuild database dengan Z-score normalization"""
     

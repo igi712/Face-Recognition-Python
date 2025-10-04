@@ -13,7 +13,7 @@
   "enable_liveness": false,
   "enable_blur_filter": true,
   "auto_add_faces": false,
-  "database_path": "face_database_mobilefacenet.json",
+  "database_path": "face_database.json",
   "images_directory": "images",
   "use_arcface": true,
   "use_zscore_norm": true,

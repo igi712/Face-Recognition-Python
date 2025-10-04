@@ -40,7 +40,7 @@ class ConfigManager:
             "enable_liveness": True,
             "enable_blur_filter": True,
             "auto_add_faces": False,
-            "database_path": "face_database_mobilefacenet.json",
+            "database_path": "face_database.json",
             "images_directory": "images",
             "models": {
                 "face_detector": {

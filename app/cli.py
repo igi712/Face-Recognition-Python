@@ -49,7 +49,7 @@ class FaceRecognitionSystem:
             "enable_liveness": False,  # ✅ DEFAULT OFF untuk FPS (seperti Jetson Nano #ifdef)
             "enable_blur_filter": True,
             "auto_add_faces": False,
-            "database_path": "face_database_mobilefacenet.json",
+            "database_path": "face_database.json",
             "images_directory": "images",
             "use_arcface": use_arcface,
             "arcface_model_path": arcface_model_path,
@@ -599,7 +599,7 @@ def main() -> None:
 
     parser.add_argument("input", type=str, nargs="?", default="0", help="Input source (webcam index, image, or video file)")
     parser.add_argument("--config", type=str, help="Configuration file path")
-    parser.add_argument("--database", type=str, default="face_database_mobilefacenet.json", help="Face database file path")
+    parser.add_argument("--database", type=str, default="face_database.json", help="Face database file path")
     parser.add_argument("--populate", type=str, help="Auto-populate database from directory")
     parser.add_argument("--threshold", type=float, help="Recognition threshold (auto-set based on feature type)")
     parser.add_argument("--min-size", type=int, default=90, help="Minimum face size in pixels")
